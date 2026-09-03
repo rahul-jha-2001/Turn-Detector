@@ -1,7 +1,12 @@
 gradio==4.44.0
+fastapi==0.115.6
+starlette==0.41.3
+pydantic==2.10.6
+
 huggingface_hub<0.26.0
 spaces>=0.30.0
-onnxruntime==1.17.3
+
+onnxruntime>=1.29.0
 numpy<2
 transformers
 soundfile
