@@ -5,3 +5,4 @@ onnxruntime
 numpy
 transformers
 soundfile
+pydantic==2.10.6
