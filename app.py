@@ -10,7 +10,9 @@ import json
 import numpy as np
 import onnxruntime as ort
 import gradio as gr
+import spaces
 from transformers import WhisperFeatureExtractor
+
 
 CHUNK_LENGTH_SECONDS = 8
 SAMPLE_RATE = 16000
@@ -65,6 +67,7 @@ def predict(audio, model_choice):
     return f"{label}\n\nConfidence: {prob:.3f}"
 
 
+@spaces.GPU
 def predict_both(audio):
     if audio is None:
         return "No audio provided.", "No audio provided."
