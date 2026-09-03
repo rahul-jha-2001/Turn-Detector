@@ -5,7 +5,7 @@ pydantic==2.10.6
 
 huggingface_hub<0.26.0
 spaces>=0.30.0
-onnxruntime
+onnxruntime==1.17.3
 numpy
 transformers
 soundfile
