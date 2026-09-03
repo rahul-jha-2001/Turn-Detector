@@ -1,0 +1,238 @@
+"""
+train_stage2.py
+
+Stage 2: fine-tune the stage-1 checkpoint on real Hinglish/Indic dialogue
+data (sarvamai/indic-diarbench, materialized via extract_diarbench_materialized.py).
+
+Confirmed zero-shot baseline (before this run):
+  eval_accuracy=0.5885, eval_f1=0.5138 - motivates this fine-tuning step.
+
+Tracks stage-1 test set accuracy every epoch (forgetting check) alongside
+stage-2 eval accuracy (adaptation check). All artifacts (checkpoints,
+final model, forgetting curve) saved under out_dir (default:
+checkpoints_stage2/), kept separate from stage-1's checkpoints/.
+
+Uses load_finetuned_model() instead of from_pretrained() to avoid the
+transformers 5.16.1 tied-weights finalization bug (confirmed fix).
+"""
+
+import argparse
+import json
+import logging
+import os
+import sys
+import torch
+from safetensors.torch import load_file
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from transformers import Trainer, TrainingArguments, WhisperFeatureExtractor, TrainerCallback, WhisperConfig
+
+from model import SmartTurnV3Model
+from dataloader import load_datasets, WhisperCollator, CHUNK_LENGTH_SECONDS
+from dataloader_stage2 import load_stage2_datasets, Stage2Collator
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
+                     datefmt="%H:%M:%S", stream=sys.stdout)
+log = logging.getLogger("train_stage2")
+
+
+def load_finetuned_model(checkpoint_dir: str) -> SmartTurnV3Model:
+    """Loads a saved SmartTurnV3Model checkpoint WITHOUT going through
+    PreTrainedModel.from_pretrained()'s finalization step (crashes on this
+    transformers version's tied-weights bookkeeping)."""
+    config = WhisperConfig.from_pretrained(checkpoint_dir)
+    model = SmartTurnV3Model(config)
+
+    safetensors_path = os.path.join(checkpoint_dir, "model.safetensors")
+    bin_path = os.path.join(checkpoint_dir, "pytorch_model.bin")
+
+    if os.path.exists(safetensors_path):
+        state_dict = load_file(safetensors_path)
+    elif os.path.exists(bin_path):
+        state_dict = torch.load(bin_path, map_location="cpu")
+    else:
+        raise FileNotFoundError(f"No weights file found in {checkpoint_dir}")
+
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    log.info(f"Loaded checkpoint - missing: {missing}, unexpected: {unexpected}")
+    return model
+
+
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    probs = logits.squeeze()
+    preds = (probs > 0.5).astype(int)
+    labels = labels.astype(int)
+    return {
+        "accuracy": accuracy_score(labels, preds),
+        "precision": precision_score(labels, preds, zero_division=0),
+        "recall": recall_score(labels, preds, zero_division=0),
+        "f1": f1_score(labels, preds, zero_division=0),
+    }
+
+
+class Stage1ForgettingCallback(TrainerCallback):
+    """Evaluates on the STAGE-1 test set every time Trainer evaluates on
+    the stage-2 eval set (every epoch, given eval_strategy='epoch')."""
+
+    def __init__(self, trainer_ref_holder, stage1_test_ds, stage1_collate):
+        self.trainer_ref_holder = trainer_ref_holder
+        self.stage1_test_ds = stage1_test_ds
+        self.stage1_collate = stage1_collate
+        self.history = []
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        trainer = self.trainer_ref_holder["trainer"]
+        original_collator = trainer.data_collator
+
+        trainer.data_collator = self.stage1_collate
+        stage1_metrics = trainer.evaluate(self.stage1_test_ds, metric_key_prefix="stage1test")
+        trainer.data_collator = original_collator
+
+        row = {
+            "epoch": state.epoch,
+            "stage2_eval_accuracy": metrics.get("eval_accuracy") if metrics else None,
+            "stage2_eval_f1": metrics.get("eval_f1") if metrics else None,
+            "stage1test_accuracy": stage1_metrics.get("stage1test_accuracy"),
+            "stage1test_f1": stage1_metrics.get("stage1test_f1"),
+        }
+        self.history.append(row)
+        log.info(f"[epoch {state.epoch:.1f}] stage2_acc={row['stage2_eval_accuracy']:.4f} "
+                  f"stage1test_acc={row['stage1test_accuracy']:.4f}")
+
+
+def main(
+    stage1_checkpoint: str = "checkpoints/final_model",
+    stage2_manifest: str = "data_stage2_materialized/manifest.csv",
+    stage2_data_root: str = "data_stage2_materialized",
+    stage1_test_parquet_glob: str = "data_full_raw/test/data/*.parquet",
+    out_dir: str = "checkpoints_stage2",
+    batch_size: int = 16,
+    num_epochs: int = 3,
+    learning_rate: float = 5e-6,
+    warmup_ratio: float = 0.1,
+    run_name: str = "smart-turn-stage2",
+):
+    os.makedirs(out_dir, exist_ok=True)
+
+    log.info("=" * 60)
+    log.info(f"CONFIG: lr={learning_rate} epochs={num_epochs} batch_size={batch_size} "
+              f"stage1_checkpoint={stage1_checkpoint} out_dir={out_dir}")
+    log.info("=" * 60)
+
+    log.info(f"Loading stage-1 checkpoint from {stage1_checkpoint}...")
+    model = load_finetuned_model(stage1_checkpoint)
+    n_params = sum(p.numel() for p in model.parameters())
+    log.info(f"Stage-1 checkpoint loaded - {n_params:,} params")
+
+    fe = WhisperFeatureExtractor(chunk_length=CHUNK_LENGTH_SECONDS)
+
+    log.info("Loading stage-2 (real Indic dialogue) train/eval data...")
+    stage2_train, stage2_eval = load_stage2_datasets(stage2_manifest, stage2_data_root)
+    stage2_collate = Stage2Collator(fe)
+
+    log.info("Loading stage-1 test set (pipecat v3.2-test) for forgetting check...")
+    _, _, stage1_test_ds = load_datasets(test_parquet_glob=stage1_test_parquet_glob)
+    stage1_collate = WhisperCollator(fe)
+
+    total_steps = (len(stage2_train) // batch_size) * num_epochs
+    warmup_steps = int(warmup_ratio * total_steps)
+    log.info(f"Total stage-2 steps: {total_steps}, warmup: {warmup_steps}")
+
+    training_args = TrainingArguments(
+        output_dir=out_dir,  # per-epoch checkpoints saved here, under out_dir
+        run_name=run_name,
+        per_device_train_batch_size=batch_size,
+        per_device_eval_batch_size=batch_size,
+        num_train_epochs=num_epochs,
+        learning_rate=learning_rate,
+        warmup_steps=warmup_steps,
+        lr_scheduler_type="cosine",
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        logging_steps=20,
+        load_best_model_at_end=True,
+        metric_for_best_model="f1",
+        greater_is_better=True,
+        report_to=["wandb"],
+        remove_unused_columns=False,
+        fp16=True,
+        dataloader_num_workers=4,
+    )
+
+    trainer_ref_holder = {}
+    forgetting_callback = Stage1ForgettingCallback(trainer_ref_holder, stage1_test_ds, stage1_collate)
+
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=stage2_train,
+        eval_dataset=stage2_eval,
+        data_collator=stage2_collate,
+        compute_metrics=compute_metrics,
+        callbacks=[forgetting_callback],
+    )
+    trainer_ref_holder["trainer"] = trainer
+
+    log.info("=== Epoch 0 (zero-shot baseline, before stage-2 fine-tuning) ===")
+    pre_stage2_metrics = trainer.evaluate(stage2_eval)
+    log.info(f"Stage-2 eval (zero-shot): {pre_stage2_metrics}")
+    trainer.data_collator = stage1_collate
+    pre_stage1_metrics = trainer.evaluate(stage1_test_ds, metric_key_prefix="stage1test")
+    log.info(f"Stage-1 test (before any stage-2 training): {pre_stage1_metrics}")
+    trainer.data_collator = stage2_collate
+
+    log.info("Starting stage-2 fine-tuning...")
+    trainer.train()
+
+    log.info("=== FULL forgetting-vs-adaptation curve ===")
+    log.info(f"  epoch 0 (zero-shot): stage2_acc={pre_stage2_metrics['eval_accuracy']:.4f} "
+              f"stage1test_acc={pre_stage1_metrics['stage1test_accuracy']:.4f}")
+    for row in forgetting_callback.history:
+        log.info(f"  epoch {row['epoch']:.1f}: stage2_acc={row['stage2_eval_accuracy']:.4f} "
+                  f"stage1test_acc={row['stage1test_accuracy']:.4f}")
+
+    # Save the full forgetting-vs-adaptation curve to disk, in the stage2 subfolder
+    curve_path = f"{out_dir}/forgetting_curve.json"
+    full_curve = [{
+        "epoch": 0.0,
+        "stage2_eval_accuracy": pre_stage2_metrics["eval_accuracy"],
+        "stage2_eval_f1": pre_stage2_metrics["eval_f1"],
+        "stage1test_accuracy": pre_stage1_metrics["stage1test_accuracy"],
+        "stage1test_f1": pre_stage1_metrics["stage1test_f1"],
+    }] + forgetting_callback.history
+    with open(curve_path, "w") as f:
+        json.dump(full_curve, f, indent=2)
+    log.info(f"Forgetting-vs-adaptation curve saved to {curve_path}")
+
+    final_path = f"{out_dir}/final_model"
+    trainer.save_model(final_path)
+    log.info(f"Model saved to {final_path}")
+    log.info("Done.")
+
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser()
+    p.add_argument("--stage1_checkpoint", default="checkpoints/final_model")
+    p.add_argument("--stage2_manifest", default="data_stage2_materialized/manifest.csv")
+    p.add_argument("--stage2_data_root", default="data_stage2_materialized")
+    p.add_argument("--stage1_test_parquet_glob", default="data_full_raw/test/data/*.parquet")
+    p.add_argument("--out_dir", default="checkpoints_stage2")
+    p.add_argument("--batch_size", type=int, default=16)
+    p.add_argument("--num_epochs", type=int, default=3)
+    p.add_argument("--learning_rate", type=float, default=5e-6)
+    p.add_argument("--warmup_ratio", type=float, default=0.1)
+    p.add_argument("--run_name", default="smart-turn-stage2")
+    args = p.parse_args()
+
+    main(
+        stage1_checkpoint=args.stage1_checkpoint,
+        stage2_manifest=args.stage2_manifest,
+        stage2_data_root=args.stage2_data_root,
+        stage1_test_parquet_glob=args.stage1_test_parquet_glob,
+        out_dir=args.out_dir,
+        batch_size=args.batch_size,
+        num_epochs=args.num_epochs,
+        learning_rate=args.learning_rate,
+        warmup_ratio=args.warmup_ratio,
+        run_name=args.run_name,
+    )
