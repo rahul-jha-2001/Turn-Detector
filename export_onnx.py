@@ -2,13 +2,21 @@
 export_onnx.py
 
 Exports a SmartTurnV3Model checkpoint to ONNX, then applies dynamic int8
-quantization - matching pipecat's own approach (confirmed: ONNX export +
-dynamic quantization, NOT static - community results show static loses
-4-12+ accuracy points on this architecture, dynamic is lossless).
+quantization to MatMul ops only (matching pipecat's own approach, with
+one deviation: Conv is deliberately excluded from quantization).
+
+Conv exclusion rationale: quantizing Conv produces a ConvInteger op,
+which has no CPU kernel implementation in some onnxruntime
+builds/versions - a genuine, long-standing gap reported across many
+onnxruntime GitHub issues since 2020 (#3130, #12558, #15888, #23985),
+not a version-pinning problem. Restricting quantization to MatMul avoids
+the broken op entirely while still capturing most of the size/speed
+benefit, since MatMul ops in the transformer layers dominate the
+model's parameter count over the two small Conv1d frontend layers.
 
 Produces two files per checkpoint:
   <name>_fp32.onnx       - unquantized ONNX export
-  <name>_int8.onnx       - dynamically quantized version
+  <name>_int8.onnx       - dynamically quantized version (MatMul only)
 """
 
 import os
@@ -57,19 +65,19 @@ def export_to_onnx(model: torch.nn.Module, out_path: str):
     dummy_input = torch.randn(1, 80, MAX_SOURCE_POSITIONS * 2)  # [1, 80, 800]
 
     torch.onnx.export(
-    model,
-    (dummy_input,),
-    out_path,
-    input_names=["input_features"],
-    output_names=["logits"],
-    dynamic_axes={
-        "input_features": {0: "batch_size"},
-        "logits": {0: "batch_size"},
-    },
-    opset_version=17,
-    do_constant_folding=True,
-    dynamo=False,  # force legacy TorchScript-based exporter - more mature/reliable for custom models
-)
+        model,
+        (dummy_input,),
+        out_path,
+        input_names=["input_features"],
+        output_names=["logits"],
+        dynamic_axes={
+            "input_features": {0: "batch_size"},
+            "logits": {0: "batch_size"},
+        },
+        opset_version=17,
+        do_constant_folding=True,
+        dynamo=False,  # force legacy TorchScript-based exporter - more mature/reliable for custom models
+    )
     size_mb = os.path.getsize(out_path) / (1024 * 1024)
     print(f"Exported {out_path} ({size_mb:.2f} MB)")
 
@@ -79,6 +87,9 @@ def quantize_onnx(fp32_path: str, int8_path: str):
         model_input=fp32_path,
         model_output=int8_path,
         weight_type=QuantType.QInt8,
+        op_types_to_quantize=["MatMul"],  # exclude Conv - ConvInteger has no
+        # CPU kernel in some onnxruntime builds (long-standing upstream bug,
+        # not fixable via version pinning - see module docstring)
     )
     size_mb = os.path.getsize(int8_path) / (1024 * 1024)
     print(f"Quantized {int8_path} ({size_mb:.2f} MB)")
