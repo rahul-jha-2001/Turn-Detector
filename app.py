@@ -20,8 +20,8 @@ SAMPLE_RATE = 16000
 fe = WhisperFeatureExtractor(chunk_length=CHUNK_LENGTH_SECONDS)
 
 MODELS = {
-    "Stage 1 (pipecat reproduction)": "onnx_models/stage1_final_fp32.onnx",
-    "Stage 2 (fine-tuned on real Indic dialogue)": "onnx_models/stage2_final_fp32.onnx",
+    "Stage 1 (pipecat reproduction)": "onnx_models/stage1_final_int8.onnx",
+    "Stage 2 (fine-tuned on real Indic dialogue)": "onnx_models/stage2_final_int8.onnx",
 }
 _sessions = {}
 
@@ -94,18 +94,23 @@ with gr.Blocks(title="Turn Detection Demo") as demo:
 
     with gr.Tab("Dataset Examples"):
         gr.Markdown("### Sample clips from both datasets")
-        with open("samples/samples_manifest.json") as f:
-            manifest = json.load(f)
+        manifest = None
+        try:
+            with open("samples/samples_manifest.json") as f:
+                manifest = json.load(f)
+        except FileNotFoundError:
+            gr.Markdown("Sample files not found.")
 
-        gr.Markdown("**Stage 1 (pipecat synthetic test set)**")
-        for item in manifest["stage1"]:
-            with gr.Row():
-                gr.Audio(f"samples/stage1/{item['file']}", label=f"{item['language']} | label={item['label']}")
+        if manifest:
+            gr.Markdown("**Stage 1 (pipecat synthetic test set)**")
+            for item in manifest["stage1"]:
+                with gr.Row():
+                    gr.Audio(f"samples/stage1/{item['file']}", label=f"{item['language']} | label={item['label']}")
 
-        gr.Markdown("**Stage 2 (real Indic dialogue)**")
-        for item in manifest["stage2"]:
-            with gr.Row():
-                gr.Audio(f"samples/stage2/{item['file']}", label=f"{item['language']} | label={item['label']} | {item['kind']}")
+            gr.Markdown("**Stage 2 (real Indic dialogue)**")
+            for item in manifest["stage2"]:
+                with gr.Row():
+                    gr.Audio(f"samples/stage2/{item['file']}", label=f"{item['language']} | label={item['label']} | {item['kind']}")
 
     with gr.Tab("Report"):
         gr.Markdown("## Report — coming soon")
@@ -113,4 +118,4 @@ with gr.Blocks(title="Turn Detection Demo") as demo:
 
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    demo.launch()
