@@ -7,10 +7,12 @@ with tables/charts).
 """
 
 import json
+import os
 import numpy as np
 import onnxruntime as ort
 import gradio as gr
 import spaces
+import soundfile as sf
 from transformers import WhisperFeatureExtractor
 
 
@@ -37,26 +39,7 @@ def truncate_audio(audio_array, n_seconds=8, sr=16000):
     if len(audio_array) > max_samples:
         return audio_array[-max_samples:]
     return audio_array
-def load_sample_choices():
-    choices = []
-    if os.path.exists("samples/samples_manifest.json"):
-        with open("samples/samples_manifest.json") as f:
-            manifest = json.load(f)
-        for item in manifest.get("stage1", []):
-            choices.append((f"[Stage1] {item['language']} | label={item['label']} | {item['file']}",
-                             f"samples/stage1/{item['file']}"))
-        for item in manifest.get("stage2", []):
-            choices.append((f"[Stage2] {item['language']} | label={item['label']} | {item['kind']} | {item['file']}",
-                             f"samples/stage2/{item['file']}"))
-    return choices
 
-
-def load_sample_audio(sample_path):
-    if not sample_path:
-        return None
-    import soundfile as sf
-    waveform, sr = sf.read(sample_path)
-    return (sr, waveform)
 
 def predict(audio, model_choice):
     if audio is None:
@@ -65,8 +48,8 @@ def predict(audio, model_choice):
     sr, waveform = audio
     waveform = waveform.astype(np.float32)
     if waveform.ndim > 1:
-        waveform = waveform.mean(axis=1)  # stereo -> mono
-    waveform = waveform / (np.abs(waveform).max() + 1e-8)  # normalize
+        waveform = waveform.mean(axis=1)
+    waveform = waveform / (np.abs(waveform).max() + 1e-8)
 
     waveform = truncate_audio(waveform, CHUNK_LENGTH_SECONDS, sr)
 
@@ -95,20 +78,53 @@ def predict_both(audio):
     return r1, r2
 
 
+def load_sample_choices():
+    choices = []
+    if os.path.exists("samples/samples_manifest.json"):
+        with open("samples/samples_manifest.json") as f:
+            manifest = json.load(f)
+        for item in manifest.get("stage1", []):
+            choices.append((
+                f"[Stage1] {item['language']} | label={item['label']} | {item['file']}",
+                f"samples/stage1/{item['file']}",
+            ))
+        for item in manifest.get("stage2", []):
+            choices.append((
+                f"[Stage2] {item['language']} | label={item['label']} | {item['kind']} | {item['file']}",
+                f"samples/stage2/{item['file']}",
+            ))
+    return choices
+
+
+def load_sample_audio(sample_path):
+    if not sample_path:
+        return None
+    waveform, sr = sf.read(sample_path)
+    return (sr, waveform)
+
+
 with gr.Blocks(title="Turn Detection Demo") as demo:
     gr.Markdown("# Turn Detection: Stage 1 vs Stage 2")
     gr.Markdown(
-        "Upload or record an 8-second (or shorter) audio clip. "
+        "Upload or record an 8-second (or shorter) audio clip, or pick a sample below. "
         "Compare the pipecat-reproduction model (trained on synthetic data) "
         "against the stage-2 model (fine-tuned on real Indic dialogue)."
     )
 
     with gr.Tab("Live Demo"):
+        sample_choices = load_sample_choices()
+        sample_dropdown = gr.Dropdown(
+            choices=sample_choices,
+            label="Or pick a sample clip",
+            value=None,
+        )
         audio_input = gr.Audio(sources=["upload", "microphone"], type="numpy", label="Audio input")
         run_btn = gr.Button("Run both models", variant="primary")
         with gr.Row():
             out1 = gr.Textbox(label="Stage 1 (pipecat reproduction)")
             out2 = gr.Textbox(label="Stage 2 (fine-tuned)")
+
+        sample_dropdown.change(load_sample_audio, inputs=sample_dropdown, outputs=audio_input)
         run_btn.click(predict_both, inputs=audio_input, outputs=[out1, out2])
 
     with gr.Tab("Dataset Examples"):
@@ -135,21 +151,6 @@ with gr.Blocks(title="Turn Detection Demo") as demo:
         gr.Markdown("## Report — coming soon")
         gr.Markdown("Tables and charts covering EDA, training results, forgetting-vs-adaptation curve, and ONNX/quantization comparison will go here.")
 
-with gr.Tab("Live Demo"):
-    sample_choices = load_sample_choices()
-    sample_dropdown = gr.Dropdown(
-        choices=sample_choices,
-        label="Or pick a sample clip",
-        value=None,
-    )
-    audio_input = gr.Audio(sources=["upload", "microphone"], type="numpy", label="Audio input")
-    run_btn = gr.Button("Run both models", variant="primary")
-    with gr.Row():
-        out1 = gr.Textbox(label="Stage 1 (pipecat reproduction)")
-        out2 = gr.Textbox(label="Stage 2 (fine-tuned)")
 
-    sample_dropdown.change(load_sample_audio, inputs=sample_dropdown, outputs=audio_input)
-    run_btn.click(predict_both, inputs=audio_input, outputs=[out1, out2])
-    
 if __name__ == "__main__":
     demo.launch()
