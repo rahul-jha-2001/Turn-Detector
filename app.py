@@ -37,7 +37,26 @@ def truncate_audio(audio_array, n_seconds=8, sr=16000):
     if len(audio_array) > max_samples:
         return audio_array[-max_samples:]
     return audio_array
+def load_sample_choices():
+    choices = []
+    if os.path.exists("samples/samples_manifest.json"):
+        with open("samples/samples_manifest.json") as f:
+            manifest = json.load(f)
+        for item in manifest.get("stage1", []):
+            choices.append((f"[Stage1] {item['language']} | label={item['label']} | {item['file']}",
+                             f"samples/stage1/{item['file']}"))
+        for item in manifest.get("stage2", []):
+            choices.append((f"[Stage2] {item['language']} | label={item['label']} | {item['kind']} | {item['file']}",
+                             f"samples/stage2/{item['file']}"))
+    return choices
 
+
+def load_sample_audio(sample_path):
+    if not sample_path:
+        return None
+    import soundfile as sf
+    waveform, sr = sf.read(sample_path)
+    return (sr, waveform)
 
 def predict(audio, model_choice):
     if audio is None:
@@ -116,6 +135,21 @@ with gr.Blocks(title="Turn Detection Demo") as demo:
         gr.Markdown("## Report — coming soon")
         gr.Markdown("Tables and charts covering EDA, training results, forgetting-vs-adaptation curve, and ONNX/quantization comparison will go here.")
 
+with gr.Tab("Live Demo"):
+    sample_choices = load_sample_choices()
+    sample_dropdown = gr.Dropdown(
+        choices=sample_choices,
+        label="Or pick a sample clip",
+        value=None,
+    )
+    audio_input = gr.Audio(sources=["upload", "microphone"], type="numpy", label="Audio input")
+    run_btn = gr.Button("Run both models", variant="primary")
+    with gr.Row():
+        out1 = gr.Textbox(label="Stage 1 (pipecat reproduction)")
+        out2 = gr.Textbox(label="Stage 2 (fine-tuned)")
 
+    sample_dropdown.change(load_sample_audio, inputs=sample_dropdown, outputs=audio_input)
+    run_btn.click(predict_both, inputs=audio_input, outputs=[out1, out2])
+    
 if __name__ == "__main__":
     demo.launch()
