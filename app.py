@@ -12,6 +12,7 @@ import numpy as np
 import onnxruntime as ort
 import gradio as gr
 import soundfile as sf
+import spaces
 from transformers import WhisperFeatureExtractor
 
 CHUNK_LENGTH_SECONDS = 8
