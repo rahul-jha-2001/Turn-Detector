@@ -235,7 +235,7 @@ def chart_quantization():
         x=alt.X("label:N", sort=None), y="size_mb:Q",
         text=alt.Text("size_mb:Q", format=".1f"),
     )
-    size_final = _base(size_chart + size_labels, height=300).properties(title="Model Size", width=280)
+    size_final = (size_chart + size_labels).properties(height=300, title="Model Size", width=280)
 
     acc_chart = alt.Chart(df).mark_bar(cornerRadiusEnd=3).encode(
         x=alt.X("label:N", title=None, sort=None, axis=alt.Axis(labelAngle=-20)),
@@ -247,6 +247,9 @@ def chart_quantization():
         x=alt.X("label:N", sort=None), y="accuracy:Q",
         text=alt.Text("accuracy:Q", format=".1%"),
     )
-    acc_final = _base(acc_chart + acc_labels, height=300).properties(title="Accuracy", width=280)
+    acc_final = (acc_chart + acc_labels).properties(height=300, title="Accuracy", width=280)
 
-    return alt.hconcat(size_final, acc_final).resolve_scale(color="independent")
+    combined = alt.hconcat(size_final, acc_final).resolve_scale(color="independent")
+    return combined.configure_axis(labelFontSize=12, titleFontSize=13).configure_title(
+        fontSize=15, anchor="start"
+    ).configure_view(strokeWidth=0)
