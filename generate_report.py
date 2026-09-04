@@ -5,36 +5,42 @@ Data + polished Altair chart builders for the Streamlit "Report" tab.
 All numbers are confirmed from actual training/eval runs in this
 project - not estimates.
 
-Narrative arc (as it actually happened, in order):
-  1. Reproduced pipecat's Smart Turn v3 on their own synthetic dataset.
-  2. Got a strong benchmark number, but EDA + listening to samples
-     revealed most training data was synthetic TTS - didn't sound like
-     real human speech, especially for Hindi (0% real Hindi audio).
-  3. Went looking for a real conversational dataset -> sarvamai/indic-diarbench,
-     which has real multi-speaker audio with speaker-turn annotations.
-  4. Did EDA on that dataset (overlap rates, backchannel patterns,
-     segment structure) to design a labeling rule.
-  5. Extracted labeled clips, fine-tuned the stage-1 model on them, while
-     tracking BOTH stage-2 adaptation and stage-1 forgetting every epoch.
-  6. Found: real adaptation gain, minimal forgetting.
+Colors are set explicitly for visibility against Streamlit's dark
+theme (labelColor/titleColor/text color all set to light tones,
+transparent chart background) - Altair's defaults render as
+dark-on-dark and become invisible otherwise.
 """
 
 import pandas as pd
 import altair as alt
 
 # ---- Shared theme ----
-PRIMARY = "#2563eb"     # blue - stage 1 / general
-ACCENT = "#dc2626"      # red - stage 2 / gap / risk
-GOOD = "#16a34a"        # green - positive finding
+PRIMARY = "#3b82f6"     # blue - stage 1 / general
+ACCENT = "#f87171"      # red - stage 2 / gap / risk
+GOOD = "#4ade80"        # green - positive finding
+WARN = "#fbbf24"        # amber - secondary/harder case
 NEUTRAL_LIGHT = "#93c5fd"
-NEUTRAL_DARK = "#1e3a8a"
+LABEL_COLOR = "#f9fafb"  # near-white, for data labels
+AXIS_COLOR = "#e5e7eb"   # light gray, for axis labels/titles
 
 alt.themes.enable("none")
 
+
+def _configure(chart):
+    """Applied ONCE, only on the final top-level chart (never on
+    sub-charts that get combined via + or hconcat/vconcat - Altair
+    rejects configure_* calls on chart specs used inside a composition)."""
+    return chart.configure_axis(
+        labelFontSize=12, titleFontSize=13,
+        labelColor=AXIS_COLOR, titleColor=AXIS_COLOR,
+        domainColor="#6b7280", gridColor="#374151",
+    ).configure_title(
+        fontSize=15, anchor="start", color=LABEL_COLOR,
+    ).configure_view(strokeWidth=0).configure(background="transparent")
+
+
 def _base(chart, height=320):
-    return chart.properties(height=height).configure_axis(
-        labelFontSize=12, titleFontSize=13
-    ).configure_title(fontSize=15, anchor="start").configure_view(strokeWidth=0)
+    return _configure(chart.properties(height=height))
 
 
 # ============================================================
@@ -104,12 +110,13 @@ def chart_synthetic_split():
         y=alt.Y("pct:Q", title="Share of training data", axis=alt.Axis(format="%")),
         color=alt.Color("category:N", legend=None, scale=alt.Scale(range=[ACCENT, PRIMARY])),
     )
-    labels = alt.Chart(df).mark_text(dy=-10, fontSize=14, fontWeight="bold").encode(
+    labels = alt.Chart(df).mark_text(dy=-10, fontSize=14, fontWeight="bold", color=LABEL_COLOR).encode(
         x=alt.X("category:N", sort=None),
         y="pct:Q",
         text=alt.Text("pct:Q", format=".1%"),
     )
-    return _base(bars + labels, height=300).properties(title="Pipecat Training Data: 82% Synthetic, 0% Real Hindi")
+    chart = (bars + labels).properties(title="Pipecat Training Data: 82% Synthetic, 0% Real Hindi")
+    return _base(chart, height=300)
 
 
 def chart_stage1_language_accuracy():
@@ -121,11 +128,12 @@ def chart_stage1_language_accuracy():
         color=alt.condition(alt.datum.language == "hin", alt.value(PRIMARY), alt.value(NEUTRAL_LIGHT)),
         tooltip=["language", alt.Tooltip("accuracy:Q", format=".1%")],
     )
-    labels = alt.Chart(df).mark_text(dy=-8, fontSize=11).encode(
+    labels = alt.Chart(df).mark_text(dy=-8, fontSize=11, color=LABEL_COLOR).encode(
         x=alt.X("language:N", sort="-y"), y="accuracy:Q",
         text=alt.Text("accuracy:Q", format=".0%"),
     )
-    return _base(bars + labels, height=340).properties(title="Stage-1 Test Accuracy by Language (Hindi highlighted in blue)")
+    chart = (bars + labels).properties(title="Stage-1 Test Accuracy by Language (Hindi highlighted in blue)")
+    return _base(chart, height=340)
 
 
 def chart_zero_shot_gap():
@@ -138,13 +146,14 @@ def chart_zero_shot_gap():
         y=alt.Y("accuracy:Q", title="Accuracy", scale=alt.Scale(domain=[0, 1])),
         color=alt.Color("test_set:N", legend=None, scale=alt.Scale(range=[PRIMARY, ACCENT])),
     )
-    labels = alt.Chart(df).mark_text(dy=-10, fontSize=15, fontWeight="bold").encode(
+    labels = alt.Chart(df).mark_text(dy=-10, fontSize=15, fontWeight="bold", color=LABEL_COLOR).encode(
         x=alt.X("test_set:N", sort=None), y="accuracy:Q",
         text=alt.Text("accuracy:Q", format=".1%"),
     )
-    return _base(bars + labels, height=320).properties(
+    chart = (bars + labels).properties(
         title=f"The Generalization Gap: {STAGE1_TEST_ACCURACY-ZERO_SHOT_ACCURACY:.0%}-point drop on real audio"
     )
+    return _base(chart, height=320)
 
 
 def chart_forgetting_curve():
@@ -161,13 +170,11 @@ def chart_forgetting_curve():
         color=alt.Color("series:N", title=None, scale=alt.Scale(range=[ACCENT, PRIMARY])),
         tooltip=["epoch", "series", alt.Tooltip("accuracy:Q", format=".2%")],
     )
-    labels = alt.Chart(df_long).mark_text(dy=-14, fontSize=11).encode(
+    labels = alt.Chart(df_long).mark_text(dy=-14, fontSize=11, color=LABEL_COLOR).encode(
         x="epoch:O", y="accuracy:Q", text=alt.Text("accuracy:Q", format=".1%"),
-        color=alt.Color("series:N", legend=None, scale=alt.Scale(range=[ACCENT, PRIMARY])),
     )
-    return _base(lines + labels, height=360).properties(
-        title="Fine-tuning on Real Data: Adaptation Gain vs. Forgetting Cost"
-    )
+    chart = (lines + labels).properties(title="Fine-tuning on Real Data: Adaptation Gain vs. Forgetting Cost")
+    return _base(chart, height=360)
 
 
 def chart_final_2x2():
@@ -179,46 +186,49 @@ def chart_final_2x2():
         xOffset="model:N",
         tooltip=["model", "dataset", alt.Tooltip("accuracy:Q", format=".2%")],
     )
-    labels = alt.Chart(df).mark_text(dy=-8, fontSize=11).encode(
+    labels = alt.Chart(df).mark_text(dy=-8, fontSize=11, color=LABEL_COLOR).encode(
         x=alt.X("dataset:N"), y="accuracy:Q", xOffset="model:N",
         text=alt.Text("accuracy:Q", format=".0%"),
     )
-    return _base(bars + labels, height=360).properties(title="Final Comparison: Both Models x Both Test Sets")
+    chart = (bars + labels).properties(title="Final Comparison: Both Models x Both Test Sets")
+    return _base(chart, height=360)
 
 
 def chart_hindi_improvement():
     df = pd.DataFrame([
-        {"model": "Before\n(Stage 1 model)", "accuracy": HINDI_IMPROVEMENT["stage1_model"]},
-        {"model": "After\n(Stage 2 model)", "accuracy": HINDI_IMPROVEMENT["stage2_model"]},
+        {"model": "Before (Stage 1 model)", "accuracy": HINDI_IMPROVEMENT["stage1_model"]},
+        {"model": "After (Stage 2 model)", "accuracy": HINDI_IMPROVEMENT["stage2_model"]},
     ])
     bars = alt.Chart(df).mark_bar(size=70, cornerRadiusEnd=4).encode(
         x=alt.X("model:N", title=None, sort=None, axis=alt.Axis(labelAngle=0)),
         y=alt.Y("accuracy:Q", title="Accuracy on Hindi (real dialogue)", scale=alt.Scale(domain=[0, 1])),
         color=alt.Color("model:N", legend=None, scale=alt.Scale(range=[ACCENT, GOOD])),
     )
-    labels = alt.Chart(df).mark_text(dy=-10, fontSize=15, fontWeight="bold").encode(
+    labels = alt.Chart(df).mark_text(dy=-10, fontSize=15, fontWeight="bold", color=LABEL_COLOR).encode(
         x=alt.X("model:N", sort=None), y="accuracy:Q",
         text=alt.Text("accuracy:Q", format=".1%"),
     )
-    return _base(bars + labels, height=320).properties(
+    chart = (bars + labels).properties(
         title=f"Hindi Accuracy: +{HINDI_IMPROVEMENT['stage2_model']-HINDI_IMPROVEMENT['stage1_model']:.0%} points after real-data fine-tuning"
     )
+    return _base(chart, height=320)
 
 
 def chart_kind_breakdown():
     df = pd.DataFrame([{"kind": k, "accuracy": v} for k, v in KIND_BREAKDOWN_STAGE2_MODEL.items()])
-    df["kind"] = df["kind"].map({"mid_cut": "Mid-utterance cut\n(easier case)",
-                                  "cross_segment": "Cross-speaker change\n(harder case)"})
+    df["kind"] = df["kind"].map({"mid_cut": "Mid-utterance cut (easier)",
+                                  "cross_segment": "Cross-speaker change (harder)"})
     bars = alt.Chart(df).mark_bar(size=70, cornerRadiusEnd=4).encode(
         x=alt.X("kind:N", title=None, sort=None, axis=alt.Axis(labelAngle=0)),
         y=alt.Y("accuracy:Q", title="Accuracy", scale=alt.Scale(domain=[0, 1])),
-        color=alt.Color("kind:N", legend=None, scale=alt.Scale(range=[GOOD, "#f59e0b"])),
+        color=alt.Color("kind:N", legend=None, scale=alt.Scale(range=[GOOD, WARN])),
     )
-    labels = alt.Chart(df).mark_text(dy=-10, fontSize=15, fontWeight="bold").encode(
+    labels = alt.Chart(df).mark_text(dy=-10, fontSize=15, fontWeight="bold", color=LABEL_COLOR).encode(
         x=alt.X("kind:N", sort=None), y="accuracy:Q",
         text=alt.Text("accuracy:Q", format=".1%"),
     )
-    return _base(bars + labels, height=320).properties(title="Where the Gains Come From: Easy vs. Hard Cases")
+    chart = (bars + labels).properties(title="Where the Gains Come From: Easy vs. Hard Cases")
+    return _base(chart, height=320)
 
 
 def chart_quantization():
@@ -231,7 +241,7 @@ def chart_quantization():
         color=alt.Color("format:N", title="Format", scale=alt.Scale(range=[NEUTRAL_LIGHT, PRIMARY])),
         tooltip=["label", "size_mb"],
     )
-    size_labels = alt.Chart(df).mark_text(dy=-8, fontSize=11).encode(
+    size_labels = alt.Chart(df).mark_text(dy=-8, fontSize=11, color=LABEL_COLOR).encode(
         x=alt.X("label:N", sort=None), y="size_mb:Q",
         text=alt.Text("size_mb:Q", format=".1f"),
     )
@@ -243,13 +253,11 @@ def chart_quantization():
         color=alt.Color("format:N", title="Format", scale=alt.Scale(range=[NEUTRAL_LIGHT, PRIMARY])),
         tooltip=["label", alt.Tooltip("accuracy:Q", format=".2%")],
     )
-    acc_labels = alt.Chart(df).mark_text(dy=-8, fontSize=11).encode(
+    acc_labels = alt.Chart(df).mark_text(dy=-8, fontSize=11, color=LABEL_COLOR).encode(
         x=alt.X("label:N", sort=None), y="accuracy:Q",
         text=alt.Text("accuracy:Q", format=".1%"),
     )
     acc_final = (acc_chart + acc_labels).properties(height=300, title="Accuracy", width=280)
 
     combined = alt.hconcat(size_final, acc_final).resolve_scale(color="independent")
-    return combined.configure_axis(labelFontSize=12, titleFontSize=13).configure_title(
-        fontSize=15, anchor="start"
-    ).configure_view(strokeWidth=0)
+    return _configure(combined)
