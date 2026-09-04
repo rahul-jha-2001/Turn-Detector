@@ -4,73 +4,73 @@
       "file": "stage1_00_labelTrue_hin.wav",
       "label": true,
       "language": "hin",
-      "synthetic": true
+      "stage": "stage1"
     },
     {
       "file": "stage1_01_labelTrue_hin.wav",
       "label": true,
       "language": "hin",
-      "synthetic": true
+      "stage": "stage1"
     },
     {
       "file": "stage1_02_labelFalse_hin.wav",
       "label": false,
       "language": "hin",
-      "synthetic": true
+      "stage": "stage1"
     },
     {
       "file": "stage1_03_labelFalse_hin.wav",
       "label": false,
       "language": "hin",
-      "synthetic": true
+      "stage": "stage1"
     },
     {
       "file": "stage1_04_labelFalse_hin.wav",
       "label": false,
       "language": "hin",
-      "synthetic": true
+      "stage": "stage1"
     },
     {
       "file": "stage1_05_labelFalse_hin.wav",
       "label": false,
       "language": "hin",
-      "synthetic": true
+      "stage": "stage1"
     },
     {
       "file": "stage1_06_labelTrue_hin.wav",
       "label": true,
       "language": "hin",
-      "synthetic": true
+      "stage": "stage1"
     },
     {
       "file": "stage1_07_labelTrue_hin.wav",
       "label": true,
       "language": "hin",
-      "synthetic": true
+      "stage": "stage1"
     },
     {
       "file": "stage1_08_labelTrue_hin.wav",
       "label": true,
       "language": "hin",
-      "synthetic": true
+      "stage": "stage1"
     },
     {
       "file": "stage1_09_labelFalse_hin.wav",
       "label": false,
       "language": "hin",
-      "synthetic": true
+      "stage": "stage1"
     },
     {
       "file": "stage1_10_labelFalse_hin.wav",
       "label": false,
       "language": "hin",
-      "synthetic": true
+      "stage": "stage1"
     },
     {
       "file": "stage1_11_labelTrue_hin.wav",
       "label": true,
       "language": "hin",
-      "synthetic": true
+      "stage": "stage1"
     }
   ],
   "stage2": [
@@ -78,91 +78,91 @@
       "file": "stage2_00_labelFalse_Bengali.wav",
       "label": false,
       "language": "Bengali",
-      "kind": "mid_cut"
+      "stage": "stage2"
     },
     {
       "file": "stage2_01_labelFalse_Hindi.wav",
       "label": false,
       "language": "Hindi",
-      "kind": "mid_cut"
+      "stage": "stage2"
     },
     {
       "file": "stage2_02_labelFalse_Gujarati.wav",
       "label": false,
       "language": "Gujarati",
-      "kind": "cross_segment"
+      "stage": "stage2"
     },
     {
       "file": "stage2_03_labelFalse_Hindi.wav",
       "label": false,
       "language": "Hindi",
-      "kind": "mid_cut"
+      "stage": "stage2"
     },
     {
       "file": "stage2_04_labelFalse_Gujarati.wav",
       "label": false,
       "language": "Gujarati",
-      "kind": "mid_cut"
+      "stage": "stage2"
     },
     {
       "file": "stage2_05_labelFalse_Hindi.wav",
       "label": false,
       "language": "Hindi",
-      "kind": "cross_segment"
+      "stage": "stage2"
     },
     {
       "file": "stage2_06_labelFalse_Hindi.wav",
       "label": false,
       "language": "Hindi",
-      "kind": "mid_cut"
+      "stage": "stage2"
     },
     {
       "file": "stage2_07_labelTrue_Hindi.wav",
       "label": true,
       "language": "Hindi",
-      "kind": "cross_segment"
+      "stage": "stage2"
     },
     {
       "file": "stage2_08_labelFalse_Kashmiri.wav",
       "label": false,
       "language": "Kashmiri",
-      "kind": "cross_segment"
+      "stage": "stage2"
     },
     {
       "file": "stage2_09_labelTrue_Hindi.wav",
       "label": true,
       "language": "Hindi",
-      "kind": "cross_segment"
+      "stage": "stage2"
     },
     {
       "file": "stage2_10_labelFalse_Hindi.wav",
       "label": false,
       "language": "Hindi",
-      "kind": "cross_segment"
+      "stage": "stage2"
     },
     {
       "file": "stage2_11_labelFalse_Hindi.wav",
       "label": false,
       "language": "Hindi",
-      "kind": "mid_cut"
+      "stage": "stage2"
     },
     {
       "file": "stage2_12_labelTrue_Hindi.wav",
       "label": true,
       "language": "Hindi",
-      "kind": "cross_segment"
+      "stage": "stage2"
     },
     {
       "file": "stage2_13_labelFalse_Kannada.wav",
       "label": false,
       "language": "Kannada",
-      "kind": "cross_segment"
+      "stage": "stage2"
     },
     {
       "file": "stage2_14_labelFalse_Hindi.wav",
       "label": false,
       "language": "Hindi",
-      "kind": "mid_cut"
+      "stage": "stage2"
     }
   ]
 }

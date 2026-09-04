@@ -93,6 +93,4 @@ data_stage2_materialized/
 checkpoints/
 checkpoints_stage2/
 hindi_v2_sample/
-samples/
-onnx_models/*.onnx
-onnx_models/*.data
+onnx_models/*fp32*
