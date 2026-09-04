@@ -122,12 +122,12 @@ def chart_synthetic_split():
 def chart_stage1_language_accuracy():
     df = pd.DataFrame([{"language": k, "accuracy": v} for k, v in STAGE1_LANG_ACCURACY.items()])
     df = df.sort_values("accuracy", ascending=False)
-    bars = alt.Chart(df).mark_bar(cornerRadiusEnd=3).encode(
-        x=alt.X("language:N", sort="-y", title="Language", axis=alt.Axis(labelAngle=0)),
-        y=alt.Y("accuracy:Q", title="Test Accuracy", scale=alt.Scale(domain=[0.75, 1.0])),
-        color=alt.condition(alt.datum.language == "hin", alt.value(PRIMARY), alt.value(NEUTRAL_LIGHT)),
-        tooltip=["language", alt.Tooltip("accuracy:Q", format=".1%")],
-    )
+    bars = alt.Chart(df).mark_bar(cornerRadiusEnd=3, color=NEUTRAL_LIGHT).encode(
+    x=alt.X("language:N", sort="-y", title="Language", axis=alt.Axis(labelAngle=0)),
+    y=alt.Y("accuracy:Q", title="Test Accuracy", scale=alt.Scale(domain=[0.75, 1.0])),
+    color=alt.condition(alt.datum.language == "hin", alt.value(PRIMARY), alt.value(NEUTRAL_LIGHT)),
+    tooltip=["language", alt.Tooltip("accuracy:Q", format=".1%")],
+)
     labels = alt.Chart(df).mark_text(dy=-8, fontSize=11, color=LABEL_COLOR).encode(
         x=alt.X("language:N", sort="-y"), y="accuracy:Q",
         text=alt.Text("accuracy:Q", format=".0%"),
