@@ -3,3 +3,5 @@ onnxruntime
 transformers
 soundfile
 numpy
+altair
+pandas

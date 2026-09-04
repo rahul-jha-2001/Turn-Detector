@@ -3,7 +3,7 @@ app.py
 
 Streamlit demo: live inference with stage-1/stage-2 ONNX models (CPU
 only, via ONNX Runtime), sample clips from both datasets with
-correctness checking, and a placeholder Report tab.
+correctness checking, and a full written report with charts.
 """
 
 import json
@@ -13,6 +13,8 @@ import onnxruntime as ort
 import soundfile as sf
 import streamlit as st
 from transformers import WhisperFeatureExtractor
+
+import report_tab
 
 CHUNK_LENGTH_SECONDS = 8
 SAMPLE_RATE = 16000
@@ -143,6 +145,4 @@ with tab2:
         st.write("Sample files not found.")
 
 with tab3:
-    st.subheader("Report — coming soon")
-    st.write("Tables and charts covering EDA, training results, forgetting-vs-adaptation "
-             "curve, and ONNX/quantization comparison will go here.")
+    report_tab.render_report(st)
