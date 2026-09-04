@@ -67,7 +67,7 @@ def extract_stage1_samples(n=12, target_language="hin"):
                 "file": fname,
                 "label": bool(row["endpoint_bool"]),
                 "language": row["language"],
-                "synthetic": bool(row["synthetic"]),
+                "stage": "stage1",
             })
             saved += 1
 
@@ -123,7 +123,7 @@ def extract_stage2_samples(n_hindi=10, n_other=5, other_languages=None):
             "file": fname,
             "label": row["label"] == "True",
             "language": row["language"],
-            "kind": row["kind"],
+            "stage": "stage2",
         })
         saved += 1
         if is_hindi:

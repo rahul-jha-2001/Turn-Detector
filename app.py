@@ -1,9 +1,9 @@
 """
 app.py
 
-Gradio demo: live inference with stage-1/stage-2 ONNX models, sample
-clips from both datasets, and a placeholder Report tab (filled in later
-with tables/charts).
+Gradio demo: live inference with stage-1/stage-2 ONNX models (CPU only,
+via ONNX Runtime), sample clips from both datasets with correctness
+checking, and a placeholder Report tab.
 """
 
 import json
@@ -11,10 +11,8 @@ import os
 import numpy as np
 import onnxruntime as ort
 import gradio as gr
-import spaces
 import soundfile as sf
 from transformers import WhisperFeatureExtractor
-
 
 CHUNK_LENGTH_SECONDS = 8
 SAMPLE_RATE = 16000
@@ -41,7 +39,7 @@ def truncate_audio(audio_array, n_seconds=8, sr=16000):
     return audio_array
 
 
-def predict(audio, model_choice):
+def predict(audio, model_choice, true_label=None):
     if audio is None:
         return "No audio provided."
 
@@ -50,7 +48,6 @@ def predict(audio, model_choice):
     if waveform.ndim > 1:
         waveform = waveform.mean(axis=1)
     waveform = waveform / (np.abs(waveform).max() + 1e-8)
-
     waveform = truncate_audio(waveform, CHUNK_LENGTH_SECONDS, sr)
 
     inputs = fe(
@@ -63,18 +60,27 @@ def predict(audio, model_choice):
     session = get_session(model_choice)
     input_name = session.get_inputs()[0].name
     logits = session.run(None, {input_name: input_features})[0]
-    prob = float(logits.squeeze())
+    prob_complete = float(logits.squeeze())
 
-    label = "Complete (turn ended)" if prob > 0.5 else "Incomplete (still speaking)"
-    return f"{label}\n\nConfidence: {prob:.3f}"
+    predicted_complete = prob_complete > 0.5
+    label = "Complete (turn ended)" if predicted_complete else "Incomplete (still speaking)"
+    confidence = prob_complete if predicted_complete else 1 - prob_complete
+
+    result = f"{label}\n\nConfidence: {confidence:.3f}"
+
+    if true_label is not None:
+        true_complete = str(true_label) == "True"
+        correct = predicted_complete == true_complete
+        result += f"\n\n{'✅ Correct' if correct else '❌ Wrong'} (true label: {'Complete' if true_complete else 'Incomplete'})"
+
+    return result
 
 
-@spaces.GPU
-def predict_both(audio):
+def predict_both(audio, true_label):
     if audio is None:
         return "No audio provided.", "No audio provided."
-    r1 = predict(audio, "Stage 1 (pipecat reproduction)")
-    r2 = predict(audio, "Stage 2 (fine-tuned on real Indic dialogue)")
+    r1 = predict(audio, "Stage 1 (pipecat reproduction)", true_label)
+    r2 = predict(audio, "Stage 2 (fine-tuned on real Indic dialogue)", true_label)
     return r1, r2
 
 
@@ -84,23 +90,20 @@ def load_sample_choices():
         with open("samples/samples_manifest.json") as f:
             manifest = json.load(f)
         for item in manifest.get("stage1", []):
-            choices.append((
-                f"[Stage1] {item['language']} | label={item['label']} | {item['file']}",
-                f"samples/stage1/{item['file']}",
-            ))
+            display = f"{item['language']} | {'Complete' if item['label'] else 'Incomplete'} | Stage 1"
+            choices.append((display, f"samples/stage1/{item['file']}|{item['label']}"))
         for item in manifest.get("stage2", []):
-            choices.append((
-                f"[Stage2] {item['language']} | label={item['label']} | {item['kind']} | {item['file']}",
-                f"samples/stage2/{item['file']}",
-            ))
+            display = f"{item['language']} | {'Complete' if item['label'] else 'Incomplete'} | Stage 2"
+            choices.append((display, f"samples/stage2/{item['file']}|{item['label']}"))
     return choices
 
 
-def load_sample_audio(sample_path):
-    if not sample_path:
-        return None
-    waveform, sr = sf.read(sample_path)
-    return (sr, waveform)
+def load_sample_audio(sample_value):
+    if not sample_value:
+        return None, None
+    path, label = sample_value.rsplit("|", 1)
+    waveform, sr = sf.read(path)
+    return (sr, waveform), label
 
 
 with gr.Blocks(title="Turn Detection Demo") as demo:
@@ -113,19 +116,16 @@ with gr.Blocks(title="Turn Detection Demo") as demo:
 
     with gr.Tab("Live Demo"):
         sample_choices = load_sample_choices()
-        sample_dropdown = gr.Dropdown(
-            choices=sample_choices,
-            label="Or pick a sample clip",
-            value=None,
-        )
+        sample_dropdown = gr.Dropdown(choices=sample_choices, label="Or pick a sample clip", value=None)
         audio_input = gr.Audio(sources=["upload", "microphone"], type="numpy", label="Audio input")
+        true_label_state = gr.State(value=None)
         run_btn = gr.Button("Run both models", variant="primary")
         with gr.Row():
             out1 = gr.Textbox(label="Stage 1 (pipecat reproduction)")
             out2 = gr.Textbox(label="Stage 2 (fine-tuned)")
 
-        sample_dropdown.change(load_sample_audio, inputs=sample_dropdown, outputs=audio_input)
-        run_btn.click(predict_both, inputs=audio_input, outputs=[out1, out2])
+        sample_dropdown.change(load_sample_audio, inputs=sample_dropdown, outputs=[audio_input, true_label_state])
+        run_btn.click(predict_both, inputs=[audio_input, true_label_state], outputs=[out1, out2])
 
     with gr.Tab("Dataset Examples"):
         gr.Markdown("### Sample clips from both datasets")
@@ -140,12 +140,14 @@ with gr.Blocks(title="Turn Detection Demo") as demo:
             gr.Markdown("**Stage 1 (pipecat synthetic test set)**")
             for item in manifest["stage1"]:
                 with gr.Row():
-                    gr.Audio(f"samples/stage1/{item['file']}", label=f"{item['language']} | label={item['label']}")
+                    gr.Audio(f"samples/stage1/{item['file']}",
+                              label=f"{item['language']} | {'Complete' if item['label'] else 'Incomplete'}")
 
             gr.Markdown("**Stage 2 (real Indic dialogue)**")
             for item in manifest["stage2"]:
                 with gr.Row():
-                    gr.Audio(f"samples/stage2/{item['file']}", label=f"{item['language']} | label={item['label']} | {item['kind']}")
+                    gr.Audio(f"samples/stage2/{item['file']}",
+                              label=f"{item['language']} | {'Complete' if item['label'] else 'Incomplete'}")
 
     with gr.Tab("Report"):
         gr.Markdown("## Report — coming soon")
