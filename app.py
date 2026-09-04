@@ -38,7 +38,7 @@ def truncate_audio(audio_array, n_seconds=8, sr=16000):
         return audio_array[-max_samples:]
     return audio_array
 
-
+@spaces.GPU
 def predict(audio, model_choice, true_label=None):
     if audio is None:
         return "No audio provided."
